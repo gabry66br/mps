@@ -5,50 +5,85 @@ import plotly.graph_objects as go
 from scipy.stats import poisson
 import time
 
-# --- INSERISCI QUI LA TUA CHIAVE API ---
-# Se non la inserisci, l'app userà dati simulati
-API_KEY = "28a76af9cbba28f6a8de5ceb63798d88"
+# ==========================================
+# INSERISCI LA TUA CHIAVE API TRA LE VIRGOLETTE
+# ==========================================
+API_KEY = "ec63324b70c4ac4077192f858866098b" 
+# ==========================================
 
-st.set_page_config(page_title="AI Calcio Live", layout="wide")
+st.set_page_config(page_title="AI Calcio Live PRO", layout="wide")
 
-def get_data():
-    if API_KEY == "28a76af9cbba28f6a8de5ceb63798d88":
-        # Dati di prova se non hai ancora l'API Key
-        return [{"fixture": {"id": 1, "status": {"elapsed": 70}}, "teams": {"home": {"name": "Squadra A"}, "away": {"name": "Squadra B"}}, "goals": {"home": 1, "away": 0}}]
-    
+def get_live_matches():
     url = "https://v3.football.api-sports.io/fixtures?live=all"
-    headers = {'x-rapidapi-key': API_KEY, 'x-rapidapi-host': "v3.football.api-sports.io"}
+    headers = {'x-apisports-key': API_KEY, 'x-rapidapi-host': "v3.football.api-sports.io"}
     try:
         res = requests.get(url, headers=headers).json()
         return res.get('response', [])
     except:
         return []
 
-st.title("⚽ Il mio Predittore Live")
-st.write("L'app analizza le partite in corso e calcola la probabilità di un gol a breve.")
+def get_stats(fixture_id):
+    url = f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fixture_id}"
+    headers = {'x-apisports-key': API_KEY, 'x-rapidapi-host': "v3.football.api-sports.io"}
+    try:
+        res = requests.get(url, headers=headers).json()
+        return res.get('response', [])
+    except:
+        return []
 
-partite = get_data()
+def calcola_prob(stats, minuto):
+    # Estraiamo i dati tecnici
+    s_data = {s['type']: s['value'] for s in stats[0]['statistics'] if s['value'] is not None}
+    attacchi_p = int(s_data.get('Dangerous Attacks', 0))
+    tiri = int(s_data.get('Shots on Goal', 0))
+    # Calcolo pressione
+    pressione = (attacchi_p * 0.4) + (tiri * 4)
+    lambda_gol = (pressione / 100) * (1 + (minuto / 90)) * 0.3
+    prob = (1 - poisson.pmf(0, lambda_gol)) * 100
+    return round(min(prob, 98), 1)
+
+st.title("⚽ AI Calcio Live PRO")
+st.subheader("Analisi in tempo reale delle partite in corso")
+
+partite = get_live_matches()
 
 if not partite:
-    st.error("Nessuna partita trovata o errore API Key.")
+    st.info("Nessuna partita live in questo momento. L'app si aggiornerà appena iniziano i match!")
 else:
-    for p in partite:
-        nome_casa = p['teams']['home']['name']
-        nome_trasferta = p['teams']['away']['name']
-        minuto = p['fixture']['status']['elapsed']
+    for p in partite[:8]: # Analizza le prime 8 partite più importanti
+        f_id = p['fixture']['id']
+        casa = p['teams']['home']['name']
+        ospite = p['teams']['away']['name']
         score = f"{p['goals']['home']} - {p['goals']['away']}"
-        
-        # Algoritmo semplificato per te
-        # In un'app reale qui aggiungiamo gli attacchi pericolosi
-        prob = 15.5 + (minuto * 0.5) # Esempio: la probabilità sale col tempo
+        minuto = p['fixture']['status']['elapsed']
+        campionato = p['league']['name']
+
+        # Recupera statistiche per questa partita
+        statistiche = get_stats(f_id)
         
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.subheader(f"{nome_casa} vs {nome_trasferta}")
-            st.metric("Risultato", score, f"Minuto: {minuto}'")
+            st.write(f"**{campionato}**")
+            st.markdown(f"### {casa} vs {ospite}")
+            st.metric("Punteggio", score, f"{minuto}'")
+        
         with col2:
-            st.progress(prob/100)
-            st.write(f"Probabilità gol imminente: **{min(int(prob), 99)}%**")
+            if statistiche:
+                pressione_score = calcola_prob(statistiche, minuto)
+                st.write(f"**Probabilità Gol nei prossimi 10 minuti:**")
+                st.progress(pressione_score / 100)
+                
+                if pressione_score > 70:
+                    st.error(f"🔥 ALTA PRESSIONE: {pressione_score}% - Possibile Gol!")
+                elif pressione_score > 40:
+                    st.warning(f"⚡ In pressione: {pressione_score}%")
+                else:
+                    st.success(f"📉 Fase calma: {pressione_score}%")
+            else:
+                st.write("In attesa di dati statistici dal campo...")
+        
         st.divider()
 
-st.info("L'app si aggiorna automaticamente ogni 2 minuti.")
+st.caption("Aggiornamento automatico ogni 90 secondi. Non chiudere la pagina per monitorare.")
+time.sleep(90)
+st.rerun()
