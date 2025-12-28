@@ -8,7 +8,7 @@ import time
 # ==========================================
 # INSERISCI LA TUA CHIAVE API TRA LE VIRGOLETTE
 # ==========================================
-API_KEY = "ec63324b70c4ac4077192f858866098b" 
+API_KEY = "28a76af9cbba28f6a8de5ceb63798d88" 
 # ==========================================
 
 st.set_page_config(page_title="AI Calcio Live PRO", layout="wide")
