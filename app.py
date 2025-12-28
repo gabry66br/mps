@@ -5,27 +5,53 @@ from scipy.stats import poisson
 import time
 
 # ==========================================
-# CONFIGURAZIONE
+# CONFIGURAZIONE E FILTRI
 # ==========================================
 API_KEY = "ec63324b70c4ac4077192f858866098b" 
-st.set_page_config(page_title="Predittore Pro", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS personalizzato per renderlo simile a un'app mobile
+# ID dei Campionati Top (API-Football IDs)
+TOP_LEAGUES = [
+    135, 39, 140, 78, 61,    # Serie A, Premier, La Liga, Bundesliga, Ligue 1
+    2, 3, 848,               # Champions, Europa League, Conference
+    253, 71, 128,            # MLS, Brasile, Argentina
+    88, 94, 144              # Olanda, Portogallo, Belgio
+]
+
+st.set_page_config(page_title="Predittore Top Live", layout="wide")
+
+# CSS per il design moderno
 st.markdown("""
     <style>
-    .main { background-color: #f0f2f6; }
-    .stMetric { background-color: white; padding: 10px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
-    .match-card { background-color: white; padding: 15px; border-radius: 15px; border-left: 5px solid #007bff; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .high-prob { border-left: 5px solid #ff4b4b !important; background-color: #fff5f5; }
+    .main { background-color: #0e1117; color: white; }
+    .match-container {
+        background: #1e2130;
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 25px;
+        border: 1px solid #30363d;
+    }
+    .team-box { text-align: center; font-weight: bold; font-size: 18px; }
+    .score-box { 
+        text-align: center; 
+        font-size: 24px; 
+        font-weight: 900; 
+        color: #00ff00;
+        background: #000;
+        border-radius: 8px;
+        padding: 5px;
+    }
+    .prob-bar-container { margin-top: 15px; }
     </style>
-    """, unsafe_all__html=True)
+    """, unsafe_allow_html=True)
 
-def get_live_matches():
+def get_live_data():
     url = "https://v3.football.api-sports.io/fixtures?live=all"
     headers = {'x-apisports-key': API_KEY, 'x-rapidapi-host': "v3.football.api-sports.io"}
     try:
         res = requests.get(url, headers=headers).json()
-        return res.get('response', [])
+        all_matches = res.get('response', [])
+        # Filtriamo solo i campionati che ci interessano
+        return [m for m in all_matches if m['league']['id'] in TOP_LEAGUES]
     except: return []
 
 def get_stats(fixture_id):
@@ -40,61 +66,73 @@ def calcola_prob(stats, minuto):
     try:
         s_home = {s['type']: s['value'] for s in stats[0]['statistics'] if s['value'] is not None}
         s_away = {s['type']: s['value'] for s in stats[1]['statistics'] if s['value'] is not None}
-        
-        # Sommiamo la pressione di entrambe le squadre
-        attacchi_p = int(s_home.get('Dangerous Attacks', 0)) + int(s_away.get('Dangerous Attacks', 0))
+        att_p = int(s_home.get('Dangerous Attacks', 0)) + int(s_away.get('Dangerous Attacks', 0))
         tiri = int(s_home.get('Shots on Goal', 0)) + int(s_away.get('Shots on Goal', 0))
-        
-        pressione = (attacchi_p * 0.45) + (tiri * 4.5)
-        lambda_gol = (pressione / 100) * (1 + (minuto / 90)) * 0.28
+        pressione = (att_p * 0.45) + (tiri * 4.5)
+        lambda_gol = (pressione / 100) * (1 + (minuto / 90)) * 0.32
         prob = (1 - poisson.pmf(0, lambda_gol)) * 100
-        return round(min(prob, 99), 1), attacchi_p, tiri
+        return round(min(prob, 99), 1), att_p, tiri
     except: return 0, 0, 0
 
-st.title("⚽ Live Goal Predictor")
-st.write(f"Ultimo aggiornamento: {time.strftime('%H:%M:%S')}")
+st.title("🏆 AI Goal Predictor: Top Leagues")
+st.write(f"Aggiornamento live: {time.strftime('%H:%M:%S')}")
 
-partite = get_live_matches()
+partite = get_live_data()
 
 if not partite:
-    st.info("Nessuna partita live disponibile.")
+    st.info("Nessuna partita dei Top Campionati in corso. Torna durante i match di Serie A, Premier o MLS!")
 else:
-    for p in partite[:10]:
+    for p in partite:
         f_id = p['fixture']['id']
-        casa = p['teams']['home']['name']
-        ospite = p['teams']['away']['name']
+        # Dati Casa
+        c_nome = p['teams']['home']['name']
+        c_logo = p['teams']['home']['logo']
+        # Dati Ospite
+        o_nome = p['teams']['away']['name']
+        o_logo = p['teams']['away']['logo']
+        
         score = f"{p['goals']['home']} - {p['goals']['away']}"
         minuto = p['fixture']['status']['elapsed']
-        league = p['league']['name']
-        logo_league = p['league']['logo']
+        lega_nome = p['league']['name']
 
+        # Recupero statistiche
         stats_res = get_stats(f_id)
         prob, att_p, tiri = calcola_prob(stats_res, minuto) if stats_res else (0,0,0)
 
-        # Design della Card
-        card_style = "match-card high-prob" if prob > 65 else "match-card"
-        
-        with st.container():
-            st.markdown(f"""
-                <div class="{card_style}">
-                    <img src="{logo_league}" width="25"> <b>{league}</b><br>
-                    <span style="font-size: 20px; font-weight: bold;">{casa} {score} {ospite}</span><br>
-                    <span style="color: gray;">Minuto: {minuto}'</span>
+        # UI MATCH CARD
+        st.markdown(f"""
+            <div class="match-container">
+                <div style="text-align: center; color: #8b949e; margin-bottom: 10px;">{lega_nome}</div>
+                <div style="display: flex; justify-content: space-around; align-items: center;">
+                    <div class="team-box">
+                        <img src="{c_logo}" width="50"><br>{c_nome}
+                    </div>
+                    <div>
+                        <div class="score-box">{score}</div>
+                        <div style="text-align: center; font-size: 14px; margin-top: 5px;">{minuto}'</div>
+                    </div>
+                    <div class="team-box">
+                        <img src="{o_logo}" width="50"><br>{o_nome}
+                    </div>
                 </div>
-            """, unsafe_allow_html=True)
-            
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Probabilità Gol", f"{prob}%")
-            with c2:
-                st.metric("Attacchi Peric.", att_p)
-            with c3:
-                st.metric("Tiri in Porta", tiri)
-            
-            if prob > 70:
-                st.error("🚨 SEGNALE: Pressione altissima. Possibile gol a breve!")
-            st.write("---")
+            </div>
+        """, unsafe_allow_html=True)
 
-# Refresh automatico più lento per risparmiare API (120 secondi)
-time.sleep(120)
+        # Indicatori Sotto la Card
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            color = "red" if prob > 70 else "orange" if prob > 40 else "green"
+            st.markdown(f"**Probabilità Gol:** <span style='color:{color}; font-size:20px;'>{prob}%</span>", unsafe_allow_html=True)
+        with c2:
+            st.write(f"🔥 Attacchi Peric: **{att_p}**")
+        with c3:
+            st.write(f"🎯 Tiri Porta: **{tiri}**")
+        
+        if prob > 70:
+            st.error(f"🚨 SEGNALE GOL: {c_nome} vs {o_nome} è caldissima!")
+        
+        st.divider()
+
+# Refresh ogni 3 minuti per preservare le chiamate API
+time.sleep(180)
 st.rerun()
