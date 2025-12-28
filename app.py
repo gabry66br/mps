@@ -7,12 +7,12 @@ import time
 
 # --- INSERISCI QUI LA TUA CHIAVE API ---
 # Se non la inserisci, l'app userà dati simulati
-API_KEY = "ec63324b70c4ac4077192f858866098b"
+API_KEY = "28a76af9cbba28f6a8de5ceb63798d88"
 
 st.set_page_config(page_title="AI Calcio Live", layout="wide")
 
 def get_data():
-    if API_KEY == "ec63324b70c4ac4077192f858866098b":
+    if API_KEY == "28a76af9cbba28f6a8de5ceb63798d88":
         # Dati di prova se non hai ancora l'API Key
         return [{"fixture": {"id": 1, "status": {"elapsed": 70}}, "teams": {"home": {"name": "Squadra A"}, "away": {"name": "Squadra B"}}, "goals": {"home": 1, "away": 0}}]
     
