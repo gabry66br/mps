@@ -1,17 +1,24 @@
 import streamlit as st
 import pandas as pd
 import requests
-import plotly.graph_objects as go
 from scipy.stats import poisson
 import time
 
 # ==========================================
-# INSERISCI LA TUA CHIAVE API TRA LE VIRGOLETTE
+# CONFIGURAZIONE
 # ==========================================
-API_KEY = "28a76af9cbba28f6a8de5ceb63798d88" 
-# ==========================================
+API_KEY = "ec63324b70c4ac4077192f858866098b" 
+st.set_page_config(page_title="Predittore Pro", layout="wide", initial_sidebar_state="collapsed")
 
-st.set_page_config(page_title="AI Calcio Live PRO", layout="wide")
+# CSS personalizzato per renderlo simile a un'app mobile
+st.markdown("""
+    <style>
+    .main { background-color: #f0f2f6; }
+    .stMetric { background-color: white; padding: 10px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
+    .match-card { background-color: white; padding: 15px; border-radius: 15px; border-left: 5px solid #007bff; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .high-prob { border-left: 5px solid #ff4b4b !important; background-color: #fff5f5; }
+    </style>
+    """, unsafe_all__html=True)
 
 def get_live_matches():
     url = "https://v3.football.api-sports.io/fixtures?live=all"
@@ -19,8 +26,7 @@ def get_live_matches():
     try:
         res = requests.get(url, headers=headers).json()
         return res.get('response', [])
-    except:
-        return []
+    except: return []
 
 def get_stats(fixture_id):
     url = f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fixture_id}"
@@ -28,62 +34,67 @@ def get_stats(fixture_id):
     try:
         res = requests.get(url, headers=headers).json()
         return res.get('response', [])
-    except:
-        return []
+    except: return []
 
 def calcola_prob(stats, minuto):
-    # Estraiamo i dati tecnici
-    s_data = {s['type']: s['value'] for s in stats[0]['statistics'] if s['value'] is not None}
-    attacchi_p = int(s_data.get('Dangerous Attacks', 0))
-    tiri = int(s_data.get('Shots on Goal', 0))
-    # Calcolo pressione
-    pressione = (attacchi_p * 0.4) + (tiri * 4)
-    lambda_gol = (pressione / 100) * (1 + (minuto / 90)) * 0.3
-    prob = (1 - poisson.pmf(0, lambda_gol)) * 100
-    return round(min(prob, 98), 1)
+    try:
+        s_home = {s['type']: s['value'] for s in stats[0]['statistics'] if s['value'] is not None}
+        s_away = {s['type']: s['value'] for s in stats[1]['statistics'] if s['value'] is not None}
+        
+        # Sommiamo la pressione di entrambe le squadre
+        attacchi_p = int(s_home.get('Dangerous Attacks', 0)) + int(s_away.get('Dangerous Attacks', 0))
+        tiri = int(s_home.get('Shots on Goal', 0)) + int(s_away.get('Shots on Goal', 0))
+        
+        pressione = (attacchi_p * 0.45) + (tiri * 4.5)
+        lambda_gol = (pressione / 100) * (1 + (minuto / 90)) * 0.28
+        prob = (1 - poisson.pmf(0, lambda_gol)) * 100
+        return round(min(prob, 99), 1), attacchi_p, tiri
+    except: return 0, 0, 0
 
-st.title("⚽ AI Calcio Live PRO")
-st.subheader("Analisi in tempo reale delle partite in corso")
+st.title("⚽ Live Goal Predictor")
+st.write(f"Ultimo aggiornamento: {time.strftime('%H:%M:%S')}")
 
 partite = get_live_matches()
 
 if not partite:
-    st.info("Nessuna partita live in questo momento. L'app si aggiornerà appena iniziano i match!")
+    st.info("Nessuna partita live disponibile.")
 else:
-    for p in partite[:8]: # Analizza le prime 8 partite più importanti
+    for p in partite[:10]:
         f_id = p['fixture']['id']
         casa = p['teams']['home']['name']
         ospite = p['teams']['away']['name']
         score = f"{p['goals']['home']} - {p['goals']['away']}"
         minuto = p['fixture']['status']['elapsed']
-        campionato = p['league']['name']
+        league = p['league']['name']
+        logo_league = p['league']['logo']
 
-        # Recupera statistiche per questa partita
-        statistiche = get_stats(f_id)
-        
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.write(f"**{campionato}**")
-            st.markdown(f"### {casa} vs {ospite}")
-            st.metric("Punteggio", score, f"{minuto}'")
-        
-        with col2:
-            if statistiche:
-                pressione_score = calcola_prob(statistiche, minuto)
-                st.write(f"**Probabilità Gol nei prossimi 10 minuti:**")
-                st.progress(pressione_score / 100)
-                
-                if pressione_score > 70:
-                    st.error(f"🔥 ALTA PRESSIONE: {pressione_score}% - Possibile Gol!")
-                elif pressione_score > 40:
-                    st.warning(f"⚡ In pressione: {pressione_score}%")
-                else:
-                    st.success(f"📉 Fase calma: {pressione_score}%")
-            else:
-                st.write("In attesa di dati statistici dal campo...")
-        
-        st.divider()
+        stats_res = get_stats(f_id)
+        prob, att_p, tiri = calcola_prob(stats_res, minuto) if stats_res else (0,0,0)
 
-st.caption("Aggiornamento automatico ogni 90 secondi. Non chiudere la pagina per monitorare.")
-time.sleep(90)
+        # Design della Card
+        card_style = "match-card high-prob" if prob > 65 else "match-card"
+        
+        with st.container():
+            st.markdown(f"""
+                <div class="{card_style}">
+                    <img src="{logo_league}" width="25"> <b>{league}</b><br>
+                    <span style="font-size: 20px; font-weight: bold;">{casa} {score} {ospite}</span><br>
+                    <span style="color: gray;">Minuto: {minuto}'</span>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Probabilità Gol", f"{prob}%")
+            with c2:
+                st.metric("Attacchi Peric.", att_p)
+            with c3:
+                st.metric("Tiri in Porta", tiri)
+            
+            if prob > 70:
+                st.error("🚨 SEGNALE: Pressione altissima. Possibile gol a breve!")
+            st.write("---")
+
+# Refresh automatico più lento per risparmiare API (120 secondi)
+time.sleep(120)
 st.rerun()
